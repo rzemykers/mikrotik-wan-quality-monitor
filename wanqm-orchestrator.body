@@ -1,0 +1,83 @@
+# wanqm-orchestrator - THE only writer of VRRP priority (except the netwatch fuse, which may only lower it)
+# Down: applied immediately. Up: 60s hold-down, then ONE jump straight to the target
+# priority (NOT stepwise). Why: on RouterOS EVERY write to `priority` resets the VRRP
+# FSM (a brief BACKUP->MASTER, ~9s), regardless of direction or size of the change.
+# Stepping 30->75->80 produced 2 visible flaps instead of 1 - confirmed in the log:
+# even the 75->80 step (delta=5, both values above the backup's) triggered a full
+# on-backup/on-master cycle. Freeze raising after 3 flaps / 15 min.
+:do {
+/system script run wanqm-config
+:global WanQmCfgVrrp;:global WanQmCfgPrioGood;:global WanQmCfgPrioDeg;:global WanQmCfgPrioBad
+:global WanQmCfgHoldDownS;:global WanQmCfgFlapMax;:global WanQmCfgFlapWinS;:global WanQmCfgFreezeS
+:global WanQmCfgHbMaxAgeS;:global WanQmCfgMailTo
+:global WanQmState;:global WanQmHeartbeat;:global WanQmLastPrioChange;:global WanQmPrioHist;:global WanQmFreezeUntil
+:global WanQmNotifySev;:global WanQmNotifyText
+
+:local now ([:tonsec [:timestamp]] / 1000000000)
+:local state $WanQmState
+:if ([:typeof $WanQmHeartbeat] != "num") do={
+    :set state "UNKNOWN"
+} else={
+    :if (($now - $WanQmHeartbeat) > $WanQmCfgHbMaxAgeS) do={ :set state "UNKNOWN" }
+}
+:local target -1
+:if ($state = "GOOD") do={ :set target $WanQmCfgPrioGood }
+:if ($state = "BAD") do={ :set target $WanQmCfgPrioBad }
+# DEGRADED -> target = PrioGood. This still honours the rule "DEGRADED must not flip VRRP":
+# in the normal case cur IS ALREADY PrioGood, so target=cur, the `target != cur` check below
+# is false -> ZERO writes -> zero VRRP FSM resets. Same effect as "do nothing".
+# What it DOES fix: after the fuse emergency-dropped the priority (cur=30), a DEGRADED state
+# is proof the link is alive again - and the orchestrator can now RAISE it back (as a raise,
+# with the full hold-down). With "do nothing" the priority would stay at 30 for the whole
+# DEGRADED period, pinning traffic on the metered backup link long after the outage ended.
+# DEGRADED can never LOWER the priority, because PrioGood is the maximum value.
+# UNKNOWN -> target=-1 -> touch nothing (fail-safe: never raise blindly)
+:if ($state = "DEGRADED") do={ :set target $WanQmCfgPrioGood }
+:if ($target >= 0) do={
+    :local cur [/interface/vrrp get [find name=$WanQmCfgVrrp] priority]
+    :if ($target != $cur) do={
+        :local apply false
+        :if ($target < $cur) do={ :set apply true }
+        :if ($target > $cur) do={
+            :if ((($now - $WanQmLastPrioChange) >= $WanQmCfgHoldDownS) and ($now >= $WanQmFreezeUntil)) do={
+                :set apply true
+            }
+        }
+        :if ($apply) do={
+            /interface/vrrp set [find name=$WanQmCfgVrrp] priority=$target
+            :set WanQmLastPrioChange $now
+            :local hist [:toarray ""]
+            :foreach t in=$WanQmPrioHist do={
+                :if (($now - $t) <= $WanQmCfgFlapWinS) do={ :set hist ($hist, $t) }
+            }
+            :set hist ($hist, $now)
+            :set WanQmPrioHist $hist
+            :log warning ("[wanqm] VRRP priority " . $cur . " -> " . $target . " (state=" . $state . ")")
+            # --- notifications via wanqm-notify (they append to the incident timeline) ---
+            :local d ($target - $cur)
+            :if ($d < 0) do={ :set d (0 - $d) }
+            :if ($d >= 30) do={
+                # >=30 = a real failover, or the recovery from one. Lowering = crit (sends SMS),
+                # raising = warn (coming back alone should not wake anyone by SMS; the incident
+                # close is sent by wanqm-probe as sev=ok with the full timeline anyway).
+                :local sev "warn"
+                :local what ("VRRP priority " . $cur . " -> " . $target . " (mastership regained)")
+                :if ($target < $cur) do={
+                    :set sev "crit"
+                    :set what ("FAILOVER: VRRP priority " . $cur . " -> " . $target . " - handing mastership to the backup")
+                }
+                :set WanQmNotifySev $sev
+                :set WanQmNotifyText ($what . "\\nstate=" . $state)
+                :do { /system script run wanqm-notify } on-error={ :log error "[wanqm] orchestrator: notify failed" }
+            }
+            :if ([:len $hist] >= $WanQmCfgFlapMax) do={
+                :set WanQmFreezeUntil ($now + $WanQmCfgFreezeS)
+                :log error ("[wanqm] flap: " . [:len $hist] . " priority changes within " . $WanQmCfgFlapWinS . "s - raising frozen for " . $WanQmCfgFreezeS . "s")
+                :set WanQmNotifySev "crit"
+                :set WanQmNotifyText ("FLAP: " . [:len $hist] . " priority changes within " . $WanQmCfgFlapWinS . "s - raising frozen for " . $WanQmCfgFreezeS . "s")
+                :do { /system script run wanqm-notify } on-error={}
+            }
+        }
+    }
+}
+} on-error={ :log error "[wanqm] orchestrator: failed" }

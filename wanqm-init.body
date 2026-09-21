@@ -1,0 +1,44 @@
+# wanqm-init - cold start: clean windows, state UNKNOWN, does NOT touch VRRP
+/system script run wanqm-config
+:local now ([:tonsec [:timestamp]] / 1000000000)
+:global WanQmW1sent [:toarray ""]
+:global WanQmW1recv [:toarray ""]
+:global WanQmW1rtt [:toarray ""]
+:global WanQmW1jit [:toarray ""]
+:global WanQmW2sent [:toarray ""]
+:global WanQmW2recv [:toarray ""]
+:global WanQmW2rtt [:toarray ""]
+:global WanQmW2jit [:toarray ""]
+:global WanQmW3sent [:toarray ""]
+:global WanQmW3recv [:toarray ""]
+:global WanQmW3rtt [:toarray ""]
+:global WanQmW3jit [:toarray ""]
+:global WanQmW4sent [:toarray ""]
+:global WanQmW4recv [:toarray ""]
+:global WanQmW4rtt [:toarray ""]
+:global WanQmW4jit [:toarray ""]
+:global WanQmVerd1 "OK"
+:global WanQmVerd2 "OK"
+:global WanQmVerd3 "OK"
+:global WanQmVerd4 "OK"
+:global WanQmM1 "-"
+:global WanQmM2 "-"
+:global WanQmM3 "-"
+:global WanQmM4 "-"
+:global WanQmState "UNKNOWN"
+:global WanQmStateSince $now
+:global WanQmLastCond ""
+:global WanQmCondStreak 0
+:global WanQmHeartbeat $now
+:global WanQmLastPrioChange 0
+:global WanQmPrioHist [:toarray ""]
+:global WanQmFreezeUntil 0
+:global WanQmWdLastAlert 0
+# incident correlation (wanqm-notify): empty Id = no incident currently open.
+# WanQmLastSmsAt is deliberately NOT reset - the SMS throttle must survive a re-init,
+# otherwise a reboot/watchdog-reinit loop could send SMS without any rate limit.
+:global WanQmIncidentId ""
+:global WanQmIncidentStart 0
+:global WanQmIncidentLog [:toarray ""]
+:global WanQmFusePending ""
+:log warning "[wanqm] init: state=UNKNOWN, windows cleared (grace until long window L fills, ~2 min)"

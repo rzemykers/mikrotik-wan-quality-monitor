@@ -1,0 +1,11 @@
+# Real secrets - never commit
+secrets.local
+
+# Generated installers: they contain the injected tokens, so they are secrets too
+wanqm-install-*.rsc
+
+__pycache__/
+*.pyc
+
+# Local task tracking - not part of the published project
+tasks/
