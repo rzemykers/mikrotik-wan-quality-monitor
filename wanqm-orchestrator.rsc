@@ -1,4 +1,6 @@
 # wanqm-orchestrator - THE only writer of VRRP priority (except the netwatch fuse, which may only lower it)
+# NOT for direct /import (that would execute it once) - INSTALL.rsc reads this file
+# into the script store.
 # Down: applied immediately. Up: 60s hold-down, then ONE jump straight to the target
 # priority (NOT stepwise). Why: on RouterOS EVERY write to `priority` resets the VRRP
 # FSM (a brief BACKUP->MASTER, ~9s), regardless of direction or size of the change.

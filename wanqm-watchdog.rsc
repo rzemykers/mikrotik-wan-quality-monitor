@@ -1,4 +1,6 @@
 # wanqm-watchdog - guards freshness of the measurement heartbeat; stale -> log error + alert (max 1/30min) + re-init
+# NOT for direct /import (that would execute it once) - INSTALL.rsc reads this file
+# into the script store.
 :do {
 /system script run wanqm-config
 :global WanQmCfgMailTo
@@ -12,6 +14,23 @@
         :set stale true
     } else={
         :if (($now - $WanQmHeartbeat) > 180) do={ :set stale true }
+    }
+    # Mirror the verdict into the probe scheduler's comment for the netwatch fuse:
+    # netwatch scripts live in an isolated global-variable environment and can never
+    # see WanQmHeartbeat, but they CAN read configuration. Written only on transitions.
+    :local sid [/system scheduler find name="wanqm-probe"]
+    :local cm [/system scheduler get ($sid->0) comment]
+    :local flagged ([:typeof [:find $cm "MEASUREMENT-DEAD" -1]] != "nil")
+    :if ($stale and (!$flagged)) do={
+        /system scheduler set ($sid->0) comment=($cm . " | MEASUREMENT-DEAD")
+    }
+    :if ((!$stale) and $flagged) do={
+        :local at [:find $cm " | MEASUREMENT-DEAD" -1]
+        :if ([:typeof $at] != "nil") do={
+            /system scheduler set ($sid->0) comment=[:pick $cm 0 $at]
+        } else={
+            /system scheduler set ($sid->0) comment="wanqm: measurement+FSM"
+        }
     }
     :if ($stale) do={
         :log error "[wanqm] watchdog: heartbeat older than 180s - reinitializing logic"

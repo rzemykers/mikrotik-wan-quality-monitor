@@ -1,4 +1,6 @@
 # wanqm-notify - THE single notification funnel for wanqm + incident correlation.
+# NOT for direct /import (that would execute it once) - INSTALL.rsc reads this file
+# into the script store.
 #
 # Channels:
 #   1. Telegram via a LOCAL webhook /notify              - always
@@ -156,7 +158,12 @@
 
 # --- channel 2: SMS - critical only, with a local throttle (defence in depth) ---
 :if ($sev = "crit") do={
-    :if ($WanQmCfgSmsTo != "__UNSET__") do={
+    # skip while the recipient is __UNSET__ OR still any __PLACEHOLDER__ - the manual
+# install path ships the template with __SMS_TO__ and an un-edited copy must not
+# try to send SMS
+:local smsToSet ([:len $WanQmCfgSmsTo] > 0)
+:if ([:typeof [:find $WanQmCfgSmsTo "__" -1]] != "nil") do={ :set smsToSet false }
+:if ($smsToSet) do={
         :local pass true
         :if ([:typeof $WanQmLastSmsAt] = "num") do={
             :if (($now - $WanQmLastSmsAt) < $WanQmCfgSmsThrottleS) do={ :set pass false }

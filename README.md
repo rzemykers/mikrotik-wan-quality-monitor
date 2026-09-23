@@ -27,26 +27,39 @@ false positives, and a real ISP blip that flapped the old Netwatch while `wanqm`
 
 ## Quick start
 
+No tooling needed — everything happens on the router.
+
 ```sh
-cp secrets.local.example secrets.local    # or leave SMS_TO=__UNSET__ to skip SMS
-$EDITOR wanqm-config-primary.body         # targets, WAN interface, VRRP name  <- REQUIRED
-python3 build_install.py primary          # -> wanqm-install-primary.rsc
+cp wanqm-config-primary.rsc wanqm-config.rsc   # standby router: use -backup instead
+$EDITOR wanqm-config.rsc                       # targets, WAN interface, VRRP name, webhook token
+scp INSTALL.rsc wanqm-*.rsc admin@router:      # or drag them into Winbox > Files
 ```
 
-Upload the `.rsc` to the router, then:
+Then, **in a terminal on the router** (a Winbox-side import would swallow the output):
 
 ```
-/import wanqm-install-primary.rsc
-/log print where message~"wanqm"
+/import INSTALL.rsc
 ```
 
-Within ~2 minutes you should see a report line every 5 min:
+The installer preflights your config against the live router — it refuses to run on a
+broken config *before* touching anything — and installs everything **disabled**. It ends
+by printing the exact enable commands for your role; on the primary:
+
+```
+/system scheduler enable [find name~"^wanqm-"]
+/tool netwatch enable [find comment~"^wanqm-fuse-"]
+```
+
+Run them when you're happy, then delete the uploaded files — they carry your webhook
+token (`/file remove [find name~"(^|/)wanqm-.*\.rsc\$"]`). Within ~2 minutes of
+enabling you should see a report line every 5 min in `/log print where message~"wanqm"`:
 
 ```
 [wanqm] wan1 state=GOOD prio=80 hb=3s | p1=OK loss=0% rtt=8.1ms jit=0.1ms | p2=OK ...
 ```
 
-That's it. The import is idempotent — re-run it after any config change.
+Re-importing is idempotent — edit the config, upload, `/import` again. A re-import over
+a **running** install re-enables everything by itself, so config changes stay one step.
 
 > **The shipped targets are documentation addresses and never answer.** They are
 > placeholders, not defaults: edit `WanQmCfgTargets` first, or all four probes FAIL
@@ -67,15 +80,17 @@ fuse all go through it. Point it at something **on your LAN**: then the alert st
 out *while* the WAN is down. The first non-OK event opens an incident, later events append
 to it, and the recovery closes it with the full timeline in one message.
 
-| Setting | Where | Meaning |
-|---|---|---|
-| `WanQmCfgNotifyUrl` | config `.body` | webhook URL for the main channel |
-| `NOTIFY_TOKEN` | `secrets.local` | sent as the `X-Auth-Token` header |
-| `WanQmCfgSmsUrl` | config `.body` | webhook URL for SMS (`crit` severity only) |
-| `SMS_TOKEN` | `secrets.local` | same, for the SMS endpoint |
-| `SMS_TO` | `secrets.local` | recipient in E.164; leave `__UNSET__` to disable SMS entirely |
-| `WanQmCfgSmsThrottleS` | config `.body` | minimum seconds between SMS (default 900) |
-| `WanQmCfgMailTo` | config `.body` | fallback e-mail, used **only** when the POST fails |
+All of it lives in your `wanqm-config.rsc`:
+
+| Setting | Meaning |
+|---|---|
+| `WanQmCfgNotifyUrl` | webhook URL for the main channel |
+| `WanQmCfgNotifyToken` | sent as the `X-Auth-Token` header |
+| `WanQmCfgSmsUrl` | webhook URL for SMS (`crit` severity only) |
+| `WanQmCfgSmsToken` | same, for the SMS endpoint |
+| `WanQmCfgSmsTo` | recipient in E.164; leave `__UNSET__` to disable SMS entirely |
+| `WanQmCfgSmsThrottleS` | minimum seconds between SMS (default 900) |
+| `WanQmCfgMailTo` | fallback e-mail, used **only** when the POST fails |
 
 **The request shape is a template.** The defaults reproduce the original behaviour, so
 leaving them alone changes nothing:
@@ -123,7 +138,7 @@ Four things worth knowing:
 
 | Component | Interval | Role |
 |---|---|---|
-| `wanqm-config` | on demand | all parameters — **the only file you edit** |
+| `wanqm-config` | on demand | all parameters — installed from **your `wanqm-config.rsc`, the only file you edit** |
 | `wanqm-probe` | 10 s | measure, aggregate, run the FSM; writes globals only |
 | `wanqm-orchestrator` | 20 s | the **only** writer of VRRP priority |
 | `wanqm-watchdog` | 60 s | heartbeat freshness; re-init if measurement dies |
@@ -180,9 +195,11 @@ Plus damping: 60 s hold-down before any raise, and raising freezes for 30 min af
 
 ## Configuration
 
-Everything lives in `wanqm-config-primary.body`. The four you actually have to change:
+Everything lives in one file: your copy of a config template (`wanqm-config.rsc`).
+The five you actually have to change:
 
 ```
+:global WanQmCfgRole    "primary"   # or "backup" - drives the installer's enable listing
 :global WanQmCfgTargets {"192.0.2.1";"192.0.2.2";"192.0.2.3";"198.51.100.10"}
 :global WanQmCfgWanIf   "ether1"
 :global WanQmCfgVrrp    "vrrp1"
@@ -202,19 +219,23 @@ tick, and permanently spends one of the votes. With a dead slot, `FAIL ≥ 3 of 
 tripping on two genuine failures instead of three. Four targets, always; the build refuses
 to run with any other number.
 
-The two netwatch fuses are generated from the first two targets, and the VRRP interface
-name they write to is read from `WanQmCfgVrrp`. Nothing about your setup is duplicated in
-`build_install.py` — the config file really is the only thing you edit.
+The two netwatch fuses watch the first two targets, and everything they write —
+the VRRP interface name, the emergency priority (`PrioBad`), the restore priority
+(`PrioGood`) — is read from the config at run time. Nothing about your setup is
+duplicated in the installer: the config file really is the only thing you edit.
 
 Leave the thresholds alone for the first week, read `wanqm-report` output, then set
 OK ≈ p95 of your normal RTT and DEGRADED ≈ 2× baseline.
 
 ### Two routers
 
-`build_install.py backup` builds a profile for the standby router: it measures, logs and
-alerts, but its orchestrator is disabled and its priority stays static. That is deliberate.
-If the backup link is metered, it must never win the election on its own merit — the
-primary should hold mastership whenever it is not in `BAD`.
+The standby router runs from the `wanqm-config-backup.rsc` template (`WanQmCfgRole
+"backup"`): it measures, logs and alerts, but its orchestrator scheduler is never
+enabled — the enable listing the installer prints deliberately skips it — and its
+priority stays static. If the backup link is metered, it must never win the election on
+its own merit; the primary should hold mastership whenever it is not in `BAD`. The only
+thing that moves the backup's priority is the fuse: down to `PrioBad` in an emergency,
+back to `PrioGood` when a target returns.
 
 ## RouterOS gotchas
 
@@ -246,6 +267,16 @@ the code looks the way it does.
 
 ---
 
+## Scripted builds (optional)
+
+If you deploy often and want a single self-contained installer with the tokens already
+injected, `build_install.py` (Python 3, no dependencies) reads the same sources plus a
+`secrets.local` (copy `secrets.local.example`) and emits one `wanqm-install-<role>.rsc`
+per router, chmod 600. It installs the same things, equally disabled, and prints the
+same enable commands. The manual path above never needs it.
+
+---
+
 ## Design notes
 
 Why it works this way — the RouterOS capability survey, the threshold rationale, the
@@ -256,9 +287,9 @@ voting and FSM tables, and what production forced us to change:
 
 ## Requirements
 
-RouterOS 7.x (developed on 7.23, in production on 7.24), a VRRP interface, and Python 3
-on your workstation to build the installer. No packages, no external dependencies on the
-router.
+RouterOS **7.13 or newer** (the installer reads the uploaded files with `/file read`;
+developed on 7.23, in production on 7.24) and a VRRP interface. Nothing else: no
+packages, no external dependencies, nothing to run off-router.
 
 ---
 

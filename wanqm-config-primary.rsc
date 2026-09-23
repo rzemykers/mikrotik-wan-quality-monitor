@@ -1,32 +1,35 @@
-# wanqm-config - WAN Quality Monitor: backup router parameters (THE only place to edit)
-# Backup router on metered 5G/LTE. The orchestrator here is DISABLED ON PURPOSE and
-# PERMANENTLY - this router keeps a static priority of 70. Reason: the LTE link has a
-# monthly data cap while the primary link does not, so the backup must NEVER outbid the
-# primary on its own (primary runs 80 / DEGRADED-noop / 30). Even a well-chosen priority
-# map would risk the opposite scenario (backup > primary while the primary link is fine).
-# So on this router wanqm only measures, logs and alerts (informational), plus the
-# netwatch fuse as a backstop.
+# wanqm-config - WAN Quality Monitor: primary router parameters (THE only place to edit)
 # RTT/jitter in microseconds (us), loss in %, times in seconds
-:global WanQmCfgLinkName "lte1"
-# LTE has no pingable IP gateway (interface route) - no P1 equivalent here;
-# P1-P3=anycast resolvers (transit), P4=own remote host (end-to-end, same as primary)
+# Role drives the installer's enable listing (the backup never enables the orchestrator)
+:global WanQmCfgRole "primary"
+:global WanQmCfgLinkName "wan1"
+# P1=ISP gateway (first mile), P2/P3=anycast resolvers (transit), P4=own remote host
+# (e.g. your VPS / the far end of a site-to-site tunnel) - true end-to-end path probe
 # !! EXACTLY FOUR targets - the probe loop is unrolled. A fifth is ignored; fewer
 # !! than four leaves a slot that fails every tick and permanently eats one vote.
 # !! These are RFC 5737 documentation addresses. They do NOT respond to ping.
 # !! Replace all four with your own targets before deploying, or every probe FAILs.
-:global WanQmCfgTargets {"192.0.2.2";"192.0.2.3";"192.0.2.4";"198.51.100.10"}
-:global WanQmCfgWanIf "lte1"
+:global WanQmCfgTargets {"192.0.2.1";"192.0.2.2";"192.0.2.3";"198.51.100.10"}
+# voting: FAIL needs >= VoteFail out of 4 (a single remote host going down must not
+# trigger a failover on its own); DEGRADED-or-worse needs >= VoteDeg out of 4
+:global WanQmCfgVoteFail 3
+:global WanQmCfgVoteDeg 2
+:global WanQmCfgWanIf "ether1"
 :global WanQmCfgVrrp "vrrp1"
 # e-mail is a FALLBACK only, used when the POST to the notification webhook fails
 :global WanQmCfgMailTo "you@example.com"
-# notifications: local webhook. Note - THIS router is the one sending SMS (its LTE modem),
-# so the SMS path from here is: webhook -> REST back to this very router -> modem.
+# notifications: point these at a LOCAL webhook endpoint (n8n, Node-RED, anything).
+# Local matters: the POST then needs no internet, so the alert still arrives WHILE the
+# WAN is down. Put your tokens straight in here - this copy of the template is meant to
+# be edited and must never land in a public repo. (The __NAME__ placeholders also serve
+# the optional scripted build: build_install.py + secrets.local.)
 :global WanQmCfgNotifyUrl "https://n8n.example.com/webhook/notify"
 :global WanQmCfgNotifyToken "__NOTIFY_TOKEN__"
 :global WanQmCfgSmsUrl "https://n8n.example.com/webhook/sms-send"
 :global WanQmCfgSmsToken "__SMS_TOKEN__"
-# SMS_TO=__UNSET__ in secrets.local => SMS channel is safely skipped (Telegram still works)
+# Leave __UNSET__ (or the placeholder) to safely skip the SMS channel entirely
 :global WanQmCfgSmsTo "__SMS_TO__"
+# SMS throttle local to the router (defence in depth next to the rate limit in the webhook)
 :global WanQmCfgSmsThrottleS 900
 # --- HTTP request shape (templates) ---
 # Placeholders: %MESSAGE% %SEVERITY% %ROUTER% %LINK% %INCIDENT% %TOKEN% %TO%
@@ -44,19 +47,15 @@
 :global WanQmCfgNotifyBody "{\"message\":\"%MESSAGE%\"}"
 :global WanQmCfgSmsHeaders "Content-Type: application/json,X-Auth-Token: %TOKEN%"
 :global WanQmCfgSmsBody "{\"to\":\"%TO%\",\"message\":\"%MESSAGE%\"}"
-# voting: same as primary - FAIL >= 3 of 4, DEG >= 2 of 4
-:global WanQmCfgVoteFail 3
-:global WanQmCfgVoteDeg 2
 # measurement: 5 pings per tick (10s), long window L=12 ticks (~2 min), short S=3 (30 s)
 :global WanQmCfgPings 5
 :global WanQmCfgWinL 12
 :global WanQmCfgWinS 3
-# LTE thresholds - set these from YOUR baseline, these are only a starting point
-# OK ~ baseline+margin, DEG ~ 2.5x baseline; calibrate after a week of reports
-:global WanQmCfgRttOkUs 30000
-:global WanQmCfgRttDegUs 45000
-:global WanQmCfgJitOkUs 10000
-:global WanQmCfgJitDegUs 20000
+# per-probe thresholds (enter OK / enter DEGRADED / FAIL) - calibrate after a week of reports
+:global WanQmCfgRttOkUs 25000
+:global WanQmCfgRttDegUs 40000
+:global WanQmCfgJitOkUs 8000
+:global WanQmCfgJitDegUs 15000
 :global WanQmCfgLossOkPct 2
 :global WanQmCfgLossDegPct 5
 :global WanQmCfgLossFailPct 60
@@ -67,13 +66,18 @@
 :global WanQmCfgStreakGoodRec 12
 :global WanQmCfgMinDwellS 30
 :global WanQmCfgMinDegDwellS 60
-# VRRP priorities - UNUSED by the orchestrator (permanently disabled, see above).
-# The backup is always a static 70. The values below are kept purely as a reference
-# for a possible future score-based model.
-:global WanQmCfgPrioGood 70
-:global WanQmCfgPrioDeg 65
-:global WanQmCfgPrioBad 20
-# orchestrator: damping (inactive - scheduler permanently disabled)
+# VRRP priorities: the backup router holds a static priority of 70.
+# PrioGood and PrioBad are LOAD-BEARING for the netwatch fuse as well: it forces
+# PrioBad when both fuse targets are down and the measurement is dead, and (only where
+# no orchestrator runs) the up-script restores PrioGood.
+:global WanQmCfgPrioGood 80
+# PrioDeg is UNUSED by the orchestrator: DEGRADED never touches VRRP priority.
+# Every write to `/interface vrrp set priority` resets the VRRP FSM on RouterOS, and
+# 75 protected nothing anyway since it was always above the backup's 70.
+# Kept as a reference value for a possible future score-based model.
+:global WanQmCfgPrioDeg 75
+:global WanQmCfgPrioBad 30
+# orchestrator: damping
 :global WanQmCfgHoldDownS 60
 :global WanQmCfgFlapMax 3
 :global WanQmCfgFlapWinS 900

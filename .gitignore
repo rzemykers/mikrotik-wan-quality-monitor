@@ -1,5 +1,8 @@
-# Real secrets - never commit
+# Real secrets - never commit.
+# wanqm-config.rsc is YOUR edited copy of a wanqm-config-*.rsc template - it carries
+# your webhook tokens; secrets.local feeds the optional scripted build.
 secrets.local
+wanqm-config.rsc
 
 # Generated installers: they contain the injected tokens, so they are secrets too
 wanqm-install-*.rsc

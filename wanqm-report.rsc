@@ -1,4 +1,6 @@
 # wanqm-report - rollup report every 5 min (log info) - also used to calibrate thresholds
+# NOT for direct /import (that would execute it once) - INSTALL.rsc reads this file
+# into the script store.
 :do {
 /system script run wanqm-config
 :global WanQmCfgVrrp;:global WanQmCfgLinkName

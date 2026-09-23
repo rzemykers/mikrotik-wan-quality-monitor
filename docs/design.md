@@ -262,24 +262,51 @@ Globals live in the `WanQm*` namespace: `WanQmCfg*`, `WanQmW1..4{sent,recv,rtt,j
 ### The fuse, and how to get it wrong
 
 The fuse exists for one scenario: the scripts themselves are dead (a bug, an exhausted
-scheduler, a broken import) *and* the link is down. Three mistakes we made:
+scheduler, a broken import) *and* the link is down. Both netwatch entries carry the same
+two scripts, and every value they act on — the VRRP interface name, the emergency
+priority (`PrioBad`), the restore priority (`PrioGood`) — is read from the config at run
+time (the fuse runs `wanqm-config` first, which is why that one script is installed with
+`policy=read` only: a netwatch script has no `policy` policy and cannot run a script
+whose policies exceed its own). The "both targets down" gate counts `down` entries among
+`comment~"^wanqm-fuse-"` — when a down-script fires, its own entry is already `down`, so
+a count of ≥ 2 means "me and my partner". Three mistakes we made:
 
 1. **Ungated**, it bypassed the hysteresis and fought the orchestrator, producing VRRP
-   flaps. It now fires only when `WanQmHeartbeat` is older than 60 s.
+   flaps. The obvious gate — fire only when `WanQmHeartbeat` is stale — turned out to be
+   an illusion: **netwatch scripts run in their own global-variable environment**, fully
+   isolated from the schedulers' one (verified on ROS 7.24 in both directions, including
+   via `/system script environment`), so the fuse could never see the heartbeat and
+   silently considered the measurement dead every time. What netwatch *can* see is
+   configuration state, so the gate is now built from that, in three steps: the
+   `wanqm-probe` scheduler disabled or missing → dead; its comment carrying a
+   `MEASUREMENT-DEAD` flag → dead (the watchdog, which does see the real heartbeat,
+   mirrors its verdict into that comment on transitions — this also catches a probe
+   that starts and crashes mid-run); otherwise the probe *script's* `run-count` sampled
+   12 s apart — the scheduler starts it every 10 s, so a frozen count means nothing is
+   being started.
 2. **Without an up-script** on the backup router — whose orchestrator is permanently
    disabled — nothing ever restored the priority. It sat at an emergency 20 for 4.5 days,
    which silently broke failover in the opposite direction: 20 is below the primary's BAD
-   floor of 30, so the backup would never have taken over even while healthier.
+   floor of 30, so the backup would never have taken over even while healthier. Both
+   entries now carry an up-script that restores `PrioGood`, but it acts only where the
+   orchestrator scheduler is disabled or absent — where the orchestrator runs, it raises
+   the priority itself after the hold-down, and an immediate restore would bypass that
+   damping.
 3. **Writing unconditionally.** Both netwatch entries fire their scripts, so the priority
    was written repeatedly. Since any VRRP property write resets the FSM for ~9 s, writing
    "the same" value is not a no-op — it is a flap risk. Every writer now guards on
    `cur != target`.
 
-The fuse also sets `WanQmLastPrioChange`, so its emergency action falls under the
-orchestrator's hold-down; without that, the orchestrator reverted the emergency decision
-about nine seconds later. And it does not send its own notification — it stages the text
-in `WanQmFusePending`, which `wanqm-probe` picks up within 10 s. A backstop must stay
-minimal, and on the backup router the orchestrator cannot act as the courier.
+The same environment isolation killed two other pieces of the original design, both
+removed rather than kept as dead code. Staging the alert text in a `WanQmFusePending`
+global for `wanqm-probe` to relay could never work — the probe cannot see it — so the
+fuse now runs `wanqm-notify` directly (verified: `/system script run` and `/tool fetch`
+both work from the netwatch context; `wanqm-notify` is installed without the `policy`
+policy so the fuse is allowed to call it). And setting `WanQmLastPrioChange` to put the
+emergency action under the orchestrator's hold-down was equally invisible; it is no
+longer needed, because a correctly gated fuse only ever acts while the measurement is
+dead — precisely when the heartbeat-gated orchestrator sees `UNKNOWN` and refuses to
+write anything.
 
 ## 8. Logging, notifications, export
 
@@ -313,8 +340,10 @@ calls it through the `WanQmNotifySev` / `WanQmNotifyText` globals.
   incident and sends the whole timeline as one message. This answers "I have five e-mails
   and I cannot tell whether that was one incident or five" — and unlike SMTP, it guarantees
   chronological order.
-- **Secrets** live in `secrets.local` (chmod 600, gitignored) and are substituted into the
-  placeholders at build time, so no `.body` source ever contains a token.
+- **Secrets** go straight into your `wanqm-config.rsc` — a gitignored copy of a template,
+  edited by hand and deleted from the router after import. The optional scripted build
+  keeps them in `secrets.local` (chmod 600, gitignored) instead and substitutes the
+  `__NAME__` placeholders at build time, so no shipped source ever contains a token.
 
 ### Webhook contract
 

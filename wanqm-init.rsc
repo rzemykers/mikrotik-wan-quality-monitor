@@ -1,4 +1,6 @@
 # wanqm-init - cold start: clean windows, state UNKNOWN, does NOT touch VRRP
+# NOT for direct /import (that would execute it once) - INSTALL.rsc reads this file
+# into the script store.
 /system script run wanqm-config
 :local now ([:tonsec [:timestamp]] / 1000000000)
 :global WanQmW1sent [:toarray ""]
@@ -40,5 +42,4 @@
 :global WanQmIncidentId ""
 :global WanQmIncidentStart 0
 :global WanQmIncidentLog [:toarray ""]
-:global WanQmFusePending ""
 :log warning "[wanqm] init: state=UNKNOWN, windows cleared (grace until long window L fills, ~2 min)"

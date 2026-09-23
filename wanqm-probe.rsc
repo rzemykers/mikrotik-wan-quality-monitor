@@ -1,4 +1,6 @@
 # wanqm-probe - measurement + aggregation + FSM; writes ONLY globals, NEVER touches VRRP
+# NOT for direct /import (that would execute it once) - INSTALL.rsc reads this file
+# into the script store.
 :do {
 /system script run wanqm-config
 :global WanQmCfgLinkName;:global WanQmCfgMailTo
@@ -13,25 +15,11 @@
 :global WanQmVerd1;:global WanQmVerd2;:global WanQmVerd3;:global WanQmVerd4
 :global WanQmM1;:global WanQmM2;:global WanQmM3;:global WanQmM4
 :global WanQmState;:global WanQmStateSince;:global WanQmLastCond;:global WanQmCondStreak;:global WanQmHeartbeat
-:global WanQmNotifySev;:global WanQmNotifyText;:global WanQmFusePending
+:global WanQmNotifySev;:global WanQmNotifyText
 
 :if ([:typeof $WanQmState] = "nothing") do={ /system script run wanqm-init }
 
 :local now ([:tonsec [:timestamp]] / 1000000000)
-
-# --- relay a notification queued by the netwatch fuse ---
-# The fuse does NOT send by itself: (a) netwatch scripts may lack the policy for
-# `/system script run`, and a backstop must stay as simple and reliable as possible;
-# (b) on the backup router the orchestrator is permanently disabled, so it cannot act
-# as the courier. This probe runs every 10s on BOTH routers - hence a delay of <=10s.
-:if ([:typeof $WanQmFusePending] = "str") do={
-    :if ([:len $WanQmFusePending] > 0) do={
-        :set WanQmNotifySev "crit"
-        :set WanQmNotifyText $WanQmFusePending
-        :set WanQmFusePending ""
-        :do { /system script run wanqm-notify } on-error={ :log error "[wanqm] probe: fuse notify failed" }
-    }
-}
 
 # fMeasure: $1=target $2=ping count -> {sent;recv;rttUs;jitUs} (-1 = no data)
 # A ping succeeded if the record has NO "status" field (a record can carry "time"
