@@ -335,6 +335,12 @@ calls it through the `WanQmNotifySev` / `WanQmNotifyText` globals.
 - **SMS — `sev=crit` only**, through the backup router's LTE modem. Also entirely local.
   Rate-limited both in the webhook backend and locally on the router (900 s).
 - **E-mail — demoted to a fallback**, used only when the webhook POST fails.
+- **Takeover confirmation (backup, opt-in).** The primary's "handing mastership to the
+  backup" alert is an intent; it cannot know whether the backup took over. The backup's
+  `on-master`/`on-backup` hooks feed `wanqm-vrrpwatch` (through `:execute`, so the hooks'
+  own work is never delayed), which reports MASTER as `warn` and BACKUP as `ok` with the
+  duration. Added after a real 40 s primary outage whose failover worked but left no
+  trace in the chat: the operator could not tell whether the standby had carried anything.
 - **Incident correlation.** The first non-OK alert opens an incident (`#MMDD-HHMM`); each
   following alert appends to a buffer with a relative timestamp; an `ok` alert closes the
   incident and sends the whole timeline as one message. This answers "I have five e-mails

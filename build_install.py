@@ -95,7 +95,7 @@ def cfg_targets(body: str) -> list:
 
 
 SCRIPTS = ["wanqm-config", "wanqm-init", "wanqm-notify", "wanqm-probe",
-           "wanqm-report", "wanqm-orchestrator", "wanqm-watchdog"]
+           "wanqm-report", "wanqm-orchestrator", "wanqm-watchdog", "wanqm-vrrpwatch"]
 
 
 def build(profile: str) -> None:
@@ -133,7 +133,7 @@ def build(profile: str) -> None:
         policy = POLICY
         if name == "wanqm-config":
             policy = "read"
-        if name == "wanqm-notify":
+        if name in ("wanqm-notify", "wanqm-vrrpwatch"):
             policy = "read,write,test"
         out.append(f'/system script add name={name} policy={policy} '
                    f'comment="WAN Quality Monitor (wanqm)" source="{esc(body)}"')

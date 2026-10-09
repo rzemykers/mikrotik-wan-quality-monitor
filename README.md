@@ -146,6 +146,7 @@ Four things worth knowing:
 | `wanqm-notify` | on demand | single notification funnel + incident correlation |
 | `wanqm-init` | at startup | cold start: clean windows, `UNKNOWN`, no VRRP writes |
 | 2× netwatch fuse | 10 s | backstop for a hard DOWN **if the scripts themselves die** |
+| `wanqm-vrrpwatch` | VRRP hooks | backup only, opt-in: confirms the takeover and its duration ([below](#takeover-confirmation)) |
 
 Measurement never touches VRRP. The two layers talk in one direction only, through globals.
 
@@ -236,6 +237,32 @@ priority stays static. If the backup link is metered, it must never win the elec
 its own merit; the primary should hold mastership whenever it is not in `BAD`. The only
 thing that moves the backup's priority is the fuse: down to `PrioBad` in an emergency,
 back to `PrioGood` when a target returns.
+
+### Takeover confirmation
+
+When the primary drops its priority, its alert says it is *handing* mastership over —
+an intent, not a fact. To have the backup confirm that it really took the traffic, and
+report for how long, append two lines to the **end** of the backup's existing VRRP hooks:
+
+```
+on-master: <your existing actions>
+           :global WanQmVrrpEvent "master"
+           :execute "/system script run wanqm-vrrpwatch"
+on-backup: <your existing actions>
+           :global WanQmVrrpEvent "backup"
+           :execute "/system script run wanqm-vrrpwatch"
+```
+
+You get a `warn` alert when the backup becomes MASTER (it opens an incident) and an `ok`
+alert with the duration when it returns to BACKUP (it closes the incident with the full
+timeline). `:execute` runs the script in the background, so a slow webhook never
+delays what the hooks already do (DHCP, lease sync). Repeated events are deduplicated.
+
+The installer never writes these for you: editing a VRRP property resets its FSM for
+~9 s ([gotchas](#routeros-gotchas)). On the backup that reset is harmless — the primary
+keeps advertising with the higher priority — but do it deliberately, once. A hook
+instead of a polling scheduler: no polling, no latency, and no flap shorter than the
+poll interval goes unreported.
 
 ## RouterOS gotchas
 

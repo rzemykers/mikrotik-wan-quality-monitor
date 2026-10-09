@@ -40,8 +40,8 @@
     :return $out
 }
 
-# ---------- 1. presence + size check (9 files) ----------
-:local specs {"wanqm-config";"wanqm-init";"wanqm-notify";"wanqm-probe";"wanqm-report";"wanqm-orchestrator";"wanqm-watchdog";"wanqm-fuse-down";"wanqm-fuse-up"}
+# ---------- 1. presence + size check (10 files) ----------
+:local specs {"wanqm-config";"wanqm-init";"wanqm-notify";"wanqm-probe";"wanqm-report";"wanqm-orchestrator";"wanqm-watchdog";"wanqm-fuse-down";"wanqm-fuse-up";"wanqm-vrrpwatch"}
 :local missing ""
 :foreach s in=$specs do={
     :local f [$fFind $s]
@@ -63,9 +63,10 @@
 :local srcWatchdog [$fLoad [$fFind "wanqm-watchdog"]]
 :local srcFuseDown [$fLoad [$fFind "wanqm-fuse-down"]]
 :local srcFuseUp   [$fLoad [$fFind "wanqm-fuse-up"]]
+:local srcVrrpWatch [$fLoad [$fFind "wanqm-vrrpwatch"]]
 
 # ---------- 3. syntax check everything (catches a truncated upload) ----------
-:local sources ({"wanqm-config"=$srcConfig;"wanqm-init"=$srcInit;"wanqm-notify"=$srcNotify;"wanqm-probe"=$srcProbe;"wanqm-report"=$srcReport;"wanqm-orchestrator"=$srcOrch;"wanqm-watchdog"=$srcWatchdog;"wanqm-fuse-down"=$srcFuseDown;"wanqm-fuse-up"=$srcFuseUp})
+:local sources ({"wanqm-config"=$srcConfig;"wanqm-init"=$srcInit;"wanqm-notify"=$srcNotify;"wanqm-probe"=$srcProbe;"wanqm-report"=$srcReport;"wanqm-orchestrator"=$srcOrch;"wanqm-watchdog"=$srcWatchdog;"wanqm-fuse-down"=$srcFuseDown;"wanqm-fuse-up"=$srcFuseUp;"wanqm-vrrpwatch"=$srcVrrpWatch})
 :foreach n,s in=$sources do={
     :do {
         :local t [:parse $s]
@@ -133,6 +134,9 @@
 /system script add name=wanqm-report policy=read,write,test,policy comment="WAN Quality Monitor (wanqm)" source=$srcReport
 /system script add name=wanqm-orchestrator policy=read,write,test,policy comment="WAN Quality Monitor (wanqm)" source=$srcOrch
 /system script add name=wanqm-watchdog policy=read,write,test,policy comment="WAN Quality Monitor (wanqm)" source=$srcWatchdog
+# wanqm-vrrpwatch is run from the VRRP on-master/on-backup hooks, which you wire yourself
+# (the installer never writes VRRP - see the README). Same policies as wanqm-notify.
+/system script add name=wanqm-vrrpwatch policy=read,write,test comment="WAN Quality Monitor (wanqm)" source=$srcVrrpWatch
 
 # ---------- 7. schedulers (all disabled) ----------
 :local orchComment "wanqm: VRRP control (enable on the primary only)"
@@ -171,4 +175,8 @@
     }
     :put "  /tool netwatch enable [find comment~\"^wanqm-fuse-\"]"
     :put "First two minutes stay in UNKNOWN (cold-start grace) - a report line appears every 5 min."
+}
+:if ($WanQmCfgRole = "backup") do={
+    :put "Optional: to get a confirmed takeover alert, append the wanqm-vrrpwatch lines to the"
+    :put ("  on-master/on-backup of " . $WanQmCfgVrrp . " - see README, Takeover confirmation (resets VRRP for ~9 s)")
 }

@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-09
+
+### Added
+
+- **Takeover confirmation on the backup** (`wanqm-vrrpwatch.rsc`, opt-in). Wired from
+  the backup's VRRP `on-master`/`on-backup` hooks, it alerts `warn` when the backup
+  actually becomes MASTER and `ok` with the duration when it hands mastership back —
+  until now the only signal was the primary's "handing over" alert, an intent rather
+  than a fact. Runs asynchronously (`:execute`), deduplicates repeated events, and stays
+  silent on a plain `backup` after a reboot. The installer installs the script but never
+  writes the hooks (any VRRP write resets the FSM for ~9 s); a backup-role install prints
+  a pointer to the README instead.
+
 ## [0.2.0] - 2026-09-23
 
 Installation no longer needs Python — or anything at all beyond the router.
@@ -93,5 +106,6 @@ documentation values.
   `WanQmCfgTargets` before deploying.
 - The target list must hold exactly four entries; the build refuses any other number.
 
+[0.3.0]: https://github.com/rzemykers/mikrotik-wan-quality-monitor/releases/tag/v0.3.0
 [0.2.0]: https://github.com/rzemykers/mikrotik-wan-quality-monitor/releases/tag/v0.2.0
 [0.1.0]: https://github.com/rzemykers/mikrotik-wan-quality-monitor/releases/tag/v0.1.0
