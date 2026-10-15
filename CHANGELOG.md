@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-10-15
+
+### Fixed
+
+- **Takeover confirmation never fired from a real VRRP hook.** The hook passed the event
+  in a `WanQmVrrpEvent` global, but VRRP hooks — like netwatch — run in their own
+  global-variable environment, so the script started by `:execute` never saw it and
+  returned silently. Found in a real failover (29 min on LTE, ROS 7.24.5): the backup
+  carried the LAN and sent nothing. The 0.3.0 test ran the `:execute` from SSH, which
+  shares the schedulers' environment, and so passed. `wanqm-vrrpwatch` now reads the
+  `master`/`backup` flags of the VRRP interface (re-reading up to 3 s while the state is
+  undecided or not yet flipped), keeps the previous state in its own script comment
+  instead of globals (a job started from a hook does not share the schedulers'
+  environment), and logs an info line on every run. The hook is now a
+  single `:execute` line; 0.3.0 hooks keep working — just re-import the script, no VRRP
+  write needed.
+
 ## [0.3.0] - 2026-10-09
 
 ### Added
@@ -106,6 +123,7 @@ documentation values.
   `WanQmCfgTargets` before deploying.
 - The target list must hold exactly four entries; the build refuses any other number.
 
+[0.3.1]: https://github.com/rzemykers/mikrotik-wan-quality-monitor/releases/tag/v0.3.1
 [0.3.0]: https://github.com/rzemykers/mikrotik-wan-quality-monitor/releases/tag/v0.3.0
 [0.2.0]: https://github.com/rzemykers/mikrotik-wan-quality-monitor/releases/tag/v0.2.0
 [0.1.0]: https://github.com/rzemykers/mikrotik-wan-quality-monitor/releases/tag/v0.1.0

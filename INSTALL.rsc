@@ -177,6 +177,6 @@
     :put "First two minutes stay in UNKNOWN (cold-start grace) - a report line appears every 5 min."
 }
 :if ($WanQmCfgRole = "backup") do={
-    :put "Optional: to get a confirmed takeover alert, append the wanqm-vrrpwatch lines to the"
+    :put "Optional: to get a confirmed takeover alert, append the wanqm-vrrpwatch line to the"
     :put ("  on-master/on-backup of " . $WanQmCfgVrrp . " - see README, Takeover confirmation (resets VRRP for ~9 s)")
 }

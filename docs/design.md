@@ -308,6 +308,17 @@ longer needed, because a correctly gated fuse only ever acts while the measureme
 dead — precisely when the heartbeat-gated orchestrator sees `UNKNOWN` and refuses to
 write anything.
 
+VRRP `on-master`/`on-backup` hooks are isolated the same way, and that cost a third piece.
+The takeover confirmation of 0.3.0 had the hook set `WanQmVrrpEvent` and then `:execute`
+`wanqm-vrrpwatch`; it was tested by running that `:execute` from an SSH session, which
+shares the schedulers' environment, so the test passed. In the first real failover after
+it (2026-10-15, 29 min on LTE, ROS 7.24.5) the hook ran — lease sync and DHCP happened,
+the script's `last-started` matched — but the script saw no event and returned without a
+log line. Since 0.3.1 it reads the `master`/`backup` flags of the VRRP interface instead,
+keeps its memory (previous state, since when, boot time) in its own script comment — a
+job `:execute`d from a hook does not land in the schedulers' environment either, verified
+from a real hook — and logs every run. Lesson: test from the real trigger, not from a shell that imitates it.
+
 ## 8. Logging, notifications, export
 
 State transitions are logged at `warning` with full context:

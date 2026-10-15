@@ -242,16 +242,21 @@ back to `PrioGood` when a target returns.
 
 When the primary drops its priority, its alert says it is *handing* mastership over —
 an intent, not a fact. To have the backup confirm that it really took the traffic, and
-report for how long, append two lines to the **end** of the backup's existing VRRP hooks:
+report for how long, append one line to the **end** of both of the backup's existing VRRP
+hooks:
 
 ```
 on-master: <your existing actions>
-           :global WanQmVrrpEvent "master"
            :execute "/system script run wanqm-vrrpwatch"
 on-backup: <your existing actions>
-           :global WanQmVrrpEvent "backup"
            :execute "/system script run wanqm-vrrpwatch"
 ```
+
+The script reads the real VRRP state itself rather than being told the event — a value
+set in the hook would never reach it ([gotchas](#routeros-gotchas)) — and remembers the
+previous state in its own comment (`... | vrrp=master since=<epoch> boot=<epoch>`), not in
+a global; a reboot since then counts as "no previous state". Hooks wired for
+0.3.0, with an extra `:global WanQmVrrpEvent ...` line, keep working unchanged.
 
 You get a `warn` alert when the backup becomes MASTER (it opens an incident) and an `ok`
 alert with the duration when it returns to BACKUP (it closes the incident with the full
@@ -283,6 +288,10 @@ the code looks the way it does.
 - **A fuse without an up-script is a trap** on any router whose orchestrator is disabled:
   nothing restores the priority afterwards. Ours sat at an emergency 20 for 4.5 days,
   silently breaking failover in the opposite direction.
+- **Netwatch scripts and VRRP hooks run in their own global-variable environment**, isolated
+  from the schedulers' one. A `:global` set there is invisible to everything else — even to
+  a script the hook starts with `:execute`. Pass information through configuration state
+  (comments, `disabled`, `run-count`, the VRRP flags themselves), never through globals.
 - **Literal UTF-8 in strings is dropped.** Emoji must be hex escapes of the UTF-8 bytes:
   `"\F0\9F\94\B4"` is 🔴.
 - **`/ping ... as-value` success is a record with *no* `status` field.** A failed record
