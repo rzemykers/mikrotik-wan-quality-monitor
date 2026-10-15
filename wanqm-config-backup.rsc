@@ -33,6 +33,9 @@
 # Leave __UNSET__ (or the placeholder) to safely skip the SMS channel entirely
 :global WanQmCfgSmsTo "__SMS_TO__"
 :global WanQmCfgSmsThrottleS 900
+# a failed webhook POST is queued and retried (each alert + every minute); after this many
+# seconds still undelivered it goes out by e-mail instead
+:global WanQmCfgNotifyRetryS 300
 # --- HTTP request shape (templates) ---
 # Placeholders: %MESSAGE% %SEVERITY% %ROUTER% %LINK% %INCIDENT% %TOKEN% %TO%
 # %MESSAGE% is substituted LAST, so alert text can never expand another placeholder.

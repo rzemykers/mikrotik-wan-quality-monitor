@@ -1,4 +1,5 @@
 # wanqm-watchdog - guards freshness of the measurement heartbeat; stale -> log error + alert (max 1/30min) + re-init
+# Also re-sends the wanqm-notify retry queue once a minute while it holds anything.
 # NOT for direct /import (that would execute it once) - INSTALL.rsc reads this file
 # into the script store.
 :do {
@@ -45,6 +46,17 @@
             }
         }
         /system script run wanqm-init
+    }
+}
+# drive the notification retry queue: a POST that failed during an outage goes out as soon
+# as the webhook answers again, even if nothing else happens to raise an alert. Its own
+# error handler - a failed flush must never be mistaken for a dead measurement.
+:global WanQmNotifyQueue
+:if ([:typeof $WanQmNotifyQueue] = "array") do={
+    :if ([:len $WanQmNotifyQueue] > 0) do={
+        :set WanQmNotifySev "flush"
+        :set WanQmNotifyText ""
+        :do { /system script run wanqm-notify } on-error={ :log warning "[wanqm] watchdog: notify queue flush failed" }
     }
 }
 } on-error={ :log error "[wanqm] watchdog: failed" }

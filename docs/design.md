@@ -345,7 +345,19 @@ calls it through the `WanQmNotifySev` / `WanQmNotifyText` globals.
   important alert never made it out.
 - **SMS — `sev=crit` only**, through the backup router's LTE modem. Also entirely local.
   Rate-limited both in the webhook backend and locally on the router (900 s).
-- **E-mail — demoted to a fallback**, used only when the webhook POST fails.
+- **Retry queue in front of the e-mail.** A local endpoint is not enough on its own: the
+  webhook answers locally but delivers through *its* upstream. In a real outage (2026-10-15)
+  the first, `crit` alert hit n8n while the primary was still master and the house had no
+  internet — n8n's Telegram call failed and it answered 500. Three seconds later the backup
+  carried the LAN and the next POST went through. The `crit` alert was lost, and the e-mail
+  fallback, sent by a router whose own default route still pointed at the dead uplink,
+  blocked the probe for 21 s and failed too. Since 0.4.0 a failed POST goes into a queue
+  (a global, so shared by the schedulers) that every later alert flushes first, in order,
+  stopping at the first failure; the watchdog flushes it once a minute. Late items say how
+  late they are. Limits: SMS is not retried, and an alert queued by the fuse or the VRRP
+  hook sits in that context's environment until the next alert from there.
+- **E-mail — demoted to a last resort**, only for a queued POST still undelivered after
+  `WanQmCfgNotifyRetryS` (300 s).
 - **Takeover confirmation (backup, opt-in).** The primary's "handing mastership to the
   backup" alert is an intent; it cannot know whether the backup took over. The backup's
   `on-master`/`on-backup` hooks feed `wanqm-vrrpwatch` (through `:execute`, so the hooks'

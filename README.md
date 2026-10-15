@@ -80,6 +80,12 @@ fuse all go through it. Point it at something **on your LAN**: then the alert st
 out *while* the WAN is down. The first non-OK event opens an incident, later events append
 to it, and the recovery closes it with the full timeline in one message.
 
+A POST that fails is **queued, not lost**: every later alert re-sends the queue first, and
+the watchdog retries it once a minute, so an alert raised in the seconds before the backup
+takes over still arrives — marked `(queued - delivered +12s late)`. Only what is still
+undelivered after `WanQmCfgNotifyRetryS` goes out by e-mail. A LAN webhook whose own
+upstream is the dead WAN (n8n → Telegram) fails exactly then; this is what the queue is for.
+
 All of it lives in your `wanqm-config.rsc`:
 
 | Setting | Meaning |
@@ -90,7 +96,8 @@ All of it lives in your `wanqm-config.rsc`:
 | `WanQmCfgSmsToken` | same, for the SMS endpoint |
 | `WanQmCfgSmsTo` | recipient in E.164; leave `__UNSET__` to disable SMS entirely |
 | `WanQmCfgSmsThrottleS` | minimum seconds between SMS (default 900) |
-| `WanQmCfgMailTo` | fallback e-mail, used **only** when the POST fails |
+| `WanQmCfgMailTo` | fallback e-mail, used **only** for a POST that kept failing |
+| `WanQmCfgNotifyRetryS` | how long a failed POST is retried before the e-mail fallback (default 300) |
 
 **The request shape is a template.** The defaults reproduce the original behaviour, so
 leaving them alone changes nothing:

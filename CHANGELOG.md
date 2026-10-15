@@ -4,6 +4,26 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-15
+
+### Added
+
+- **Retry queue for webhook alerts.** A failed POST to the notification webhook is no
+  longer dropped after an immediate e-mail attempt: the already-correlated message is
+  queued (max 10), every later `wanqm-notify` run re-sends the queue first — in order,
+  stopping at the first failure — and `wanqm-watchdog` flushes it once a minute. Late
+  deliveries are marked `(queued - delivered +Ns late)`. Found in a real outage: the first
+  `crit` alert met a LAN webhook that could not reach Telegram yet (500), the next POST
+  three seconds later — after the backup took over — went through.
+- `WanQmCfgNotifyRetryS` (default 300): after this long a still-undelivered message goes
+  out by e-mail and leaves the queue. Configs without it keep working.
+
+### Changed
+
+- **E-mail fallback moved off the hot path.** It used to run synchronously right after the
+  failed POST — over the same dead uplink, blocking the probe for ~20 s. It now fires only
+  for a message that aged out of the queue.
+
 ## [0.3.1] - 2026-10-15
 
 ### Fixed
@@ -123,6 +143,7 @@ documentation values.
   `WanQmCfgTargets` before deploying.
 - The target list must hold exactly four entries; the build refuses any other number.
 
+[0.4.0]: https://github.com/rzemykers/mikrotik-wan-quality-monitor/releases/tag/v0.4.0
 [0.3.1]: https://github.com/rzemykers/mikrotik-wan-quality-monitor/releases/tag/v0.3.1
 [0.3.0]: https://github.com/rzemykers/mikrotik-wan-quality-monitor/releases/tag/v0.3.0
 [0.2.0]: https://github.com/rzemykers/mikrotik-wan-quality-monitor/releases/tag/v0.2.0
